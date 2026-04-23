@@ -49,8 +49,6 @@ print(fd.content)   # b'hello world'
 
 ## 设计
 
-完整协议见 [`DESIGN_NEW_VFS.md`](DESIGN_NEW_VFS.md),速览:
-
 - **URI:** `seekvfs://{path}`,区分大小写,尾斜杠表示目录
 - **路由:** 从 `{前缀: RouteConfig}` 中按最长前缀匹配。`RouteConfig` 只要 `backend` 一个字段
 - **协议承诺:** 通过 `write` 写进去的 content 必须能从 `read_full` 原样取出。其它(分层、embedding、摘要、生成时机)全部由 backend 自定

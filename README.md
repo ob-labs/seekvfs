@@ -49,8 +49,6 @@ Full walkthrough in [`docs/quickstart.md`](docs/quickstart.md).
 
 ## Design
 
-See [`DESIGN_NEW_VFS.md`](DESIGN_NEW_VFS.md) for the full protocol. TL;DR:
-
 - **URI:** `seekvfs://{path}`. Case-preserving. Trailing `/` = directory.
 - **Routes:** longest-prefix match from `{prefix: RouteConfig}`. `RouteConfig` only requires `backend`.
 - **Protocol contract:** content written via `write` must be retrievable via `read_full`. Everything else — tiers, embeddings, summaries, generation lifecycle — is backend-defined.
