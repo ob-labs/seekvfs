@@ -15,12 +15,12 @@ own ``TierNotAvailable`` exception; the core protocol layer does not know
 about tiers.
 
 Full guide: ``docs/recipes/maximal.md``.
-Schema:    ``src/seekvfs_recipes/maximal/schema.sql``.
+Schema & customisation: ``src/seekvfs_recipes/maximal/dao.py``.
 """
 from __future__ import annotations
 
 from seekvfs_recipes.maximal.backend import GenerationMode, OceanbaseFsBackend
-from seekvfs_recipes.maximal.dao import FilesDAO
+from seekvfs_recipes.maximal.dao import VfsStorageDAO
 from seekvfs_recipes.maximal.embedder import LangChainEmbedder
 from seekvfs_recipes.maximal.exceptions import TierNotAvailable
 from seekvfs_recipes.maximal.protocol import Embedder, Summarizer
@@ -30,7 +30,7 @@ from seekvfs_recipes.maximal.summarizer import LangChainSummarizer
 __all__ = [
     "OceanbaseFsBackend",
     "GenerationMode",
-    "FilesDAO",
+    "VfsStorageDAO",
     "Summarizer",
     "Embedder",
     "LangChainSummarizer",

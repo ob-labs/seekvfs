@@ -1,10 +1,10 @@
-"""FilesDAO — database access layer for OceanbaseFsBackend.
+"""VfsStorageDAO — database access layer for OceanbaseFsBackend.
 
 All SQL lives here. To adapt the Maximal recipe to a different schema,
-table name, column names, or database engine, subclass ``FilesDAO`` and
+table name, column names, or database engine, subclass ``VfsStorageDAO`` and
 override only the methods you need, then pass your DAO to the backend::
 
-    class MyDAO(FilesDAO):
+    class MyDAO(VfsStorageDAO):
         \"\"\"Custom schema: renamed columns, extra business fields.\"\"\"
 
         def upsert_init(self, path: str) -> None:
@@ -45,16 +45,31 @@ override only the methods you need, then pass your DAO to the backend::
         dao=MyDAO(client),   # ← inject your custom DAO
     )
 
-Default schema (``schema.sql``)::
+Default schema (executed by :meth:`VfsStorageDAO.initialize`)::
 
-    CREATE TABLE vfs_storage (
-        path       VARCHAR(512)  NOT NULL PRIMARY KEY,
-        l0         TEXT          DEFAULT NULL,
-        l1         MEDIUMTEXT    DEFAULT NULL,
-        embedding  VECTOR(1536)  DEFAULT NULL,
-        updated_at TIMESTAMP     NOT NULL DEFAULT CURRENT_TIMESTAMP
-                                 ON UPDATE CURRENT_TIMESTAMP
+    CREATE TABLE IF NOT EXISTS vfs_storage (
+        path        VARCHAR(512)    NOT NULL,
+        l0          TEXT            DEFAULT NULL,   -- short abstract (~100 tokens)
+        l1          MEDIUMTEXT      DEFAULT NULL,   -- overview (~2 k tokens)
+        embedding   VECTOR(1536)    DEFAULT NULL,   -- L0 embedding; adjust dim below
+        updated_at  TIMESTAMP       NOT NULL
+                        DEFAULT CURRENT_TIMESTAMP
+                        ON UPDATE CURRENT_TIMESTAMP,
+        PRIMARY KEY (path),
+        VECTOR INDEX idx_emb (embedding)
+            WITH (distance = L2, type = HNSW, lib = vsag)
     );
+
+**To customise the schema**, override :meth:`VfsStorageDAO.initialize` in a subclass.
+Common tweaks:
+
+* **Change vector dimension** — pass ``vector_dim=3072`` to the constructor; no subclass needed.
+* **Rename table** — pass ``table="my_table"`` to the constructor; no subclass needed.
+* **Rename columns / add columns** — subclass ``VfsStorageDAO``, override ``initialize()``
+  *and* every SQL method that references those columns (``upsert_init``,
+  ``update_derivatives``, ``get_l0``, ``get_l1``, ``get_l1_l0``,
+  ``clear_derivatives``, ``vector_search``, ``batch_l0``, ``find_incomplete``).
+* **Different DB engine** — subclass and rewrite all methods; keep the same return types.
 """
 from __future__ import annotations
 
@@ -71,7 +86,7 @@ def _vec_to_str(vec: list[float]) -> str:
     return "[" + ",".join(f"{x:.6f}" for x in vec) + "]"
 
 
-class FilesDAO:
+class VfsStorageDAO:
     """Default OceanBase data access layer for the Maximal recipe.
 
     Every public method corresponds to exactly one logical database
@@ -101,7 +116,8 @@ class FilesDAO:
         Called automatically by :class:`OceanbaseFsBackend` on first use,
         so you rarely need to invoke this directly.
 
-        Override in a subclass if you need a different schema or DDL dialect.
+        To change the schema, subclass :class:`VfsStorageDAO` and override
+        this method.  See the module docstring for a full customisation guide.
         """
         ddl = (
             f"CREATE TABLE IF NOT EXISTS {self._table} ("
@@ -120,7 +136,7 @@ class FilesDAO:
         with self._client.engine.connect() as conn:
             conn.execute(text(ddl))
             conn.commit()
-        logger.info("FilesDAO.initialize: table %r ready (dim=%d)", self._table, self._vector_dim)
+        logger.info("VfsStorageDAO.initialize: table %r ready (dim=%d)", self._table, self._vector_dim)
 
     # ------------------------------------------------------------------ #
     # Write-path                                                           #
@@ -356,4 +372,4 @@ class FilesDAO:
         return missing_deriv, no_db_record
 
 
-__all__ = ["FilesDAO"]
+__all__ = ["VfsStorageDAO"]

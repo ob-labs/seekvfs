@@ -3,11 +3,11 @@
 This is the **Maximal recipe** for seekvfs. Storage layout:
 
 - **L2** full content      → local filesystem under ``fs_root``
-- **L0** abstract (~100 t) → OceanBase via :class:`FilesDAO`
-- **L1** overview (~2k t)  → OceanBase via :class:`FilesDAO`
-- **embedding**            → OceanBase via :class:`FilesDAO` (vector column)
+- **L0** abstract (~100 t) → OceanBase via :class:`VfsStorageDAO`
+- **L1** overview (~2k t)  → OceanBase via :class:`VfsStorageDAO`
+- **embedding**            → OceanBase via :class:`VfsStorageDAO` (vector column)
 
-All database interactions are delegated to a :class:`~seekvfs_recipes.maximal.dao.FilesDAO`
+All database interactions are delegated to a :class:`~seekvfs_recipes.maximal.dao.VfsStorageDAO`
 instance, which you can subclass to adapt the table structure, column names,
 or swap the database engine entirely.
 
@@ -25,7 +25,7 @@ from typing import Literal
 from seekvfs.exceptions import BackendError, NotFoundError
 from seekvfs.models import FileData, FileInfo, GrepMatch, SearchHit, SearchResult
 from seekvfs.uri import SCHEME as _SCHEME
-from seekvfs_recipes.maximal.dao import FilesDAO
+from seekvfs_recipes.maximal.dao import VfsStorageDAO
 from seekvfs_recipes.maximal.exceptions import TierNotAvailable
 from seekvfs_recipes.maximal.protocol import Embedder, Summarizer
 
@@ -59,15 +59,15 @@ class OceanbaseFsBackend:
         summarizer: Produces L0 (``abstract``) and L1 (``overview``) from
             raw content.
         embedder: Embeds the L0 text into a dense vector.
-        dao: Optional custom :class:`~seekvfs_recipes.maximal.dao.FilesDAO`.
+        dao: Optional custom :class:`~seekvfs_recipes.maximal.dao.VfsStorageDAO`.
             Pass a subclass to adapt the schema, column names, or DB engine.
-            If omitted, a default ``FilesDAO(ob_client, table)`` is created.
+            If omitted, a default ``VfsStorageDAO(ob_client, table)`` is created.
         generation: ``"background"`` (default) — ``write`` returns immediately
             and derivatives are generated in a background thread.
             ``"sync"`` — ``write`` blocks until derivatives are committed.
         fallback_l2_chars: Maximum chars returned as a truncated-L2 fallback
             when no L1/L0 is available yet (default ``8000``).
-        table: OceanBase table name passed to the default ``FilesDAO``
+        table: OceanBase table name passed to the default ``VfsStorageDAO``
             (ignored when a custom ``dao`` is supplied).
         l0_threshold: If content (in chars) is shorter than this, L0 is set
             to the content itself — no LLM call is made.  Default 300.
@@ -82,7 +82,7 @@ class OceanbaseFsBackend:
         fs_root: str | Path,
         summarizer: Summarizer,
         embedder: Embedder,
-        dao: FilesDAO | None = None,
+        dao: VfsStorageDAO | None = None,
         generation: GenerationMode = "background",
         fallback_l2_chars: int = 8000,
         table: str = "vfs_storage",
@@ -93,7 +93,7 @@ class OceanbaseFsBackend:
             raise ValueError(
                 f"generation must be 'sync' or 'background', got {generation!r}"
             )
-        self._dao = dao if dao is not None else FilesDAO(ob_client, table)
+        self._dao = dao if dao is not None else VfsStorageDAO(ob_client, table)
         self._fs_root = Path(fs_root).resolve()
         self._summarizer = summarizer
         self._embedder = embedder

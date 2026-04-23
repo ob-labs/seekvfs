@@ -28,13 +28,17 @@ If you don't need summaries or vector search, start with the simpler [Minimal re
 
 ## Step 1 — Create the OceanBase schema
 
-Run [`src/seekvfs_recipes/maximal/schema.sql`](../../src/seekvfs_recipes/maximal/schema.sql) against your OceanBase instance.
+The table is created automatically when the backend first runs (`VfsStorageDAO.initialize()`
+is called on first use, so you don't need to run any SQL manually).
 
-```bash
-mysql -h obproxy.local -P 2883 -u kb -p agent_kb < schema.sql
-```
+The DDL and customisation options are documented in
+[`src/seekvfs_recipes/maximal/dao.py`](../../src/seekvfs_recipes/maximal/dao.py).
+Common tweaks:
 
-> The `VECTOR(1536)` dimension must match your embedder. Change it before running if you use a different model.
+- **Different vector dimension** — pass `vector_dim=3072` to `VfsStorageDAO(...)`.
+- **Different table name** — pass `table="my_table"` to `VfsStorageDAO(...)`.
+- **Custom columns / DB engine** — subclass `VfsStorageDAO` and override `initialize()`
+  plus every SQL method that references the changed columns.
 
 ## Step 2 — Build the backend
 
@@ -142,20 +146,20 @@ vfs.write("seekvfs://notes/foo.md", "The user prefers Python.")
            OB UPDATE SET l0, l1, embedding WHERE path = ...
 ```
 
-## Customising the schema (FilesDAO)
+## Customising the schema (VfsStorageDAO)
 
-All SQL lives in [`seekvfs_recipes.maximal.FilesDAO`](../../src/seekvfs_recipes/maximal/dao.py).
+All SQL lives in [`seekvfs_recipes.maximal.VfsStorageDAO`](../../src/seekvfs_recipes/maximal/dao.py).
 Subclass it, override the methods you need, and inject the result into the backend.
 The orchestration logic (async derivative scheduling, file I/O, reconcile) stays untouched.
 
 ### Example — rename columns
 
 ```python
-from seekvfs_recipes.maximal import OceanbaseFsBackend, FilesDAO
+from seekvfs_recipes.maximal import OceanbaseFsBackend, VfsStorageDAO
 from seekvfs_recipes.maximal.dao import _vec_to_str   # helper: list[float] → OB string
 
 
-class MyDAO(FilesDAO):
+class MyDAO(VfsStorageDAO):
     """Custom schema: different table / column names."""
 
     async def upsert_init(self, path: str) -> None:
