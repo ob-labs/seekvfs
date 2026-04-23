@@ -11,34 +11,28 @@ pip install seekvfs
 ## Minimal VFS
 
 ```python
-import asyncio
 from seekvfs import VFS
 from seekvfs_recipes.minimal import FileBackend
 
+vfs = VFS(routes={
+    "seekvfs://notes/": {"backend": FileBackend("/data/agent_notes")},
+})
 
-async def main() -> None:
-    vfs = VFS(routes={
-        "seekvfs://notes/": {"backend": FileBackend("/data/agent_notes")},
-    })
+# Write — stored as a real file on disk
+vfs.write("seekvfs://notes/hello.md", "hello world")
 
-    # Write — stored as a real file on disk
-    await vfs.write("seekvfs://notes/hello.md", "hello world")
+# Read — returns the stored content
+fd = vfs.read("seekvfs://notes/hello.md")
+print(fd.content.decode())
+# hello world
 
-    # Read — returns the stored content
-    fd = await vfs.read("seekvfs://notes/hello.md")
-    print(fd.content.decode())
-    # hello world
+# List
+for info in vfs.ls("seekvfs://notes/"):
+    print(info.path, info.size)
 
-    # List
-    for info in await vfs.ls("seekvfs://notes/"):
-        print(info.path, info.size)
-
-    # Grep
-    for m in await vfs.grep("hello"):
-        print(m.path, m.line_number, m.line)
-
-
-asyncio.run(main())
+# Grep
+for m in vfs.grep("hello"):
+    print(m.path, m.line_number, m.line)
 ```
 
 > Prefix names (`notes/`, `memories/`, `scratch/`, etc.) are entirely up to you. The protocol does not recommend or reserve any naming convention.
@@ -59,12 +53,19 @@ Recipes are NOT part of the protocol. They're separate packages under `seekvfs_r
 Different URI prefixes can use different recipes — handy for separating "flat storage" from "tiered with search":
 
 ```python
+from pyobvector import ObVecClient
+from langchain_anthropic import ChatAnthropic
+from langchain_openai import OpenAIEmbeddings
+
 from seekvfs import VFS
 from seekvfs_recipes.minimal import FileBackend
-import asyncmy
-from seekvfs_recipes.maximal import OceanbaseFsBackend, ClaudeSummarizer, OpenAIEmbedder
+from seekvfs_recipes.maximal import (
+    OceanbaseFsBackend,
+    LangChainSummarizer,
+    LangChainEmbedder,
+)
 
-pool = await asyncmy.create_pool(host="...", user="...", password="...", db="agent_kb")
+ob_client = ObVecClient(uri="...", user="...", password="...", db_name="agent_kb")
 
 vfs = VFS(routes={
     # Minimal: flat storage — files on disk, literal search only
@@ -72,20 +73,22 @@ vfs = VFS(routes={
     # Maximal: L2 on disk, L0/L1/embedding in OceanBase, vector search
     "seekvfs://notes/": {
         "backend": OceanbaseFsBackend(
-            ob_pool=pool,
+            ob_client=ob_client,
             fs_root="/data/agent_notes",
-            summarizer=ClaudeSummarizer(
-                model="claude-opus-4-7",
-                abstract_prompt="...",
-                overview_prompt="...",
+            summarizer=LangChainSummarizer(
+                llm=ChatAnthropic(model="claude-opus-4-5"),
+                abstract_prompt="Return a one-sentence abstract of the document.",
+                overview_prompt="Summarise the document in 3-5 bullet points.",
             ),
-            embedder=OpenAIEmbedder(model="text-embedding-3-small"),
+            embedder=LangChainEmbedder(
+                embeddings=OpenAIEmbeddings(model="text-embedding-3-small"),
+            ),
         ),
     },
 })
 ```
 
-`vfs.search(...)` fans out across every route in parallel and merges hits via the reranker.
+`vfs.search(...)` fans out across every route sequentially and merges hits via the reranker.
 
 ## Exporting tools to your agent framework
 
