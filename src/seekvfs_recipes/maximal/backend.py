@@ -95,7 +95,6 @@ class OceanbaseFsBackend:
             )
         self._dao = dao if dao is not None else FilesDAO(ob_client, table)
         self._fs_root = Path(fs_root).resolve()
-        self._fs_root.mkdir(parents=True, exist_ok=True)
         self._summarizer = summarizer
         self._embedder = embedder
         self._generation: GenerationMode = generation
@@ -108,17 +107,26 @@ class OceanbaseFsBackend:
         self._initialized = False
         self._init_lock = threading.Lock()
 
-    # ---------- lazy initialization ----------
+    # ---------- lifecycle ----------
 
-    def _ensure_ready(self) -> None:
-        """Initialize DB table and fs_root on first use (idempotent)."""
+    def initialize(self) -> None:
+        """Create the fs_root directory and the DB table if they don't exist.
+
+        Idempotent — safe to call multiple times.  Also called automatically
+        on the first backend operation via :meth:`_ensure_ready`.
+        """
         if self._initialized:
             return
         with self._init_lock:
             if self._initialized:
                 return
+            self._fs_root.mkdir(parents=True, exist_ok=True)
             self._dao.initialize()
             self._initialized = True
+
+    def _ensure_ready(self) -> None:
+        """Lazy-init guard: call ``initialize()`` on first use."""
+        self.initialize()
 
     # ---------- path helpers ----------
 

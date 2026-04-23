@@ -189,6 +189,23 @@ class VFS:
 
     # ---------- lifecycle ----------
 
+    def initialize(self) -> None:
+        """Forward to every backend's ``initialize`` (if the backend exposes one).
+
+        Safe to call even when no backend requires setup; backends without
+        setup state simply return immediately.  Called automatically by
+        ``__enter__`` when used as a context manager.
+        """
+        seen: set[int] = set()
+        for _, route in self._router.all_routes():
+            backend = route["backend"]
+            if id(backend) in seen:
+                continue
+            seen.add(id(backend))
+            init = getattr(backend, "initialize", None)
+            if init is not None:
+                init()
+
     def close(self) -> None:
         """Forward to every backend's ``close`` (if the backend exposes one).
 
@@ -207,6 +224,7 @@ class VFS:
             close()
 
     def __enter__(self) -> VFS:
+        self.initialize()
         return self
 
     def __exit__(self, *_: object) -> None:

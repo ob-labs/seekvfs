@@ -63,7 +63,6 @@ class FileBackend:
 
     def __init__(self, root_dir: str | Path) -> None:
         self._root = Path(root_dir).resolve()
-        self._root.mkdir(parents=True, exist_ok=True)
         self._edit_lock = threading.Lock()
 
     # ---------- internal helpers ----------
@@ -233,6 +232,10 @@ class FileBackend:
                 break
 
     # ---------- lifecycle ----------
+
+    def initialize(self) -> None:
+        """Create the root directory if it does not already exist."""
+        self._root.mkdir(parents=True, exist_ok=True)
 
     def close(self) -> None:
         pass

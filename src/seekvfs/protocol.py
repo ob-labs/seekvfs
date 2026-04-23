@@ -75,6 +75,14 @@ class BackendProtocol(Protocol):
 
     def read_batch(self, paths: list[str]) -> dict[str, FileData]: ...
 
+    def initialize(self) -> None:
+        """One-time setup: create tables, directories, or other resources.
+
+        Must be idempotent (safe to call multiple times).
+        Implementations without setup state should make this a no-op.
+        """
+        ...
+
     def close(self) -> None:
         """Release any resources / wait for any in-flight background work.
 
