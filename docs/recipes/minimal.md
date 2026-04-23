@@ -22,27 +22,23 @@ If you need vector search or tiered reads, use the [Maximal recipe](maximal.md) 
 ## Quickstart
 
 ```python
-import asyncio
 from seekvfs import VFS
 from seekvfs_recipes.minimal import FileBackend
 
-async def main():
-    vfs = VFS(routes={
-        "seekvfs://notes/": {"backend": FileBackend("/data/agent_notes")},
-    })
+vfs = VFS(routes={
+    "seekvfs://notes/": {"backend": FileBackend("/data/agent_notes")},
+})
 
-    await vfs.write("seekvfs://notes/hello.md", "hello world")
+vfs.write("seekvfs://notes/hello.md", "hello world")
 
-    fd = await vfs.read("seekvfs://notes/hello.md")
-    print(fd.content)   # b'hello world'
+fd = vfs.read("seekvfs://notes/hello.md")
+print(fd.content)   # b'hello world'
 
-    for info in await vfs.ls("seekvfs://notes/"):
-        print(info.path, info.size)
+for info in vfs.ls("seekvfs://notes/"):
+    print(info.path, info.size)
 
-    for m in await vfs.grep("hello"):
-        print(m.path, m.line_number, m.line)
-
-asyncio.run(main())
+for m in vfs.grep("hello"):
+    print(m.path, m.line_number, m.line)
 ```
 
 `read(path)` and `read_full(path)` return the same content — this backend stores only one representation per path. `hint` values are accepted but ignored.
@@ -65,7 +61,7 @@ Intermediate directories are created automatically on `write`. Empty directories
 The whole backend is ~200 lines in [`src/seekvfs_recipes/minimal/backend.py`](../../src/seekvfs_recipes/minimal/backend.py). To switch to a different storage medium (object store, NFS, S3-compatible API):
 
 1. Copy the file into your project.
-2. Replace `asyncio.to_thread(fp.write_bytes, data)` with your storage client calls.
+2. Replace `fp.write_bytes(data)` (and the corresponding `fp.read_bytes()` / `fp.read_text()` calls) with your storage client calls.
 3. Keep the same method signatures so it still satisfies `BackendProtocol`.
 
 If along the way you decide you want summaries or vector search, switch to the [Maximal recipe](maximal.md) as your starting point instead.
