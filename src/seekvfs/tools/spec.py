@@ -196,12 +196,44 @@ _DESCRIPTIONS: dict[str, str] = {
 }
 
 
+def _route_suffix(vfs: VFS) -> str:
+    """Build a route-context hint appended to every tool description.
+
+    Lets agents construct correct full URIs without needing an external system
+    prompt — the routing information travels with the tools themselves.
+
+    seekvfs:// is the fixed scheme for all routes; only the distinguishing
+    path segments are listed to avoid redundancy.
+
+    Example output (two routes):
+        Scheme: seekvfs://  Routes: notes/, docs/
+        Always use a full URI (e.g. 'seekvfs://notes/hello.md').
+    """
+    prefixes = [prefix for prefix, _ in vfs.iter_routes()]
+    if not prefixes:
+        return ""
+    from seekvfs.uri import SCHEME
+    segments = ", ".join(p.removeprefix(SCHEME) for p in prefixes)
+    example = prefixes[0] + "hello.md"
+    return (
+        f"\nScheme: {SCHEME}  Routes: {segments}"
+        f"\nAlways use a full URI (e.g. {example!r})."
+        " Bare filenames without a route prefix are invalid."
+    )
+
+
 def build_tools(vfs: VFS) -> ToolSpecSet:
-    """Produce the 8 agent-facing tools bound to ``vfs``."""
+    """Produce the 8 agent-facing tools bound to ``vfs``.
+
+    All tool names carry a ``vfs_`` prefix (e.g. ``vfs_read``, ``vfs_write``)
+    so they never clash with generic file-system tools that an agent may also
+    have access to (e.g. ``read_file``, ``write_file``).
+    """
+    route_hint = _route_suffix(vfs)
     specs = [
         ToolSpec(
-            name="search",
-            description=_DESCRIPTIONS["search"],
+            name="vfs_search",
+            description=_DESCRIPTIONS["search"] + route_hint,
             parameters_schema=_schema(
                 query={"type": "string", "description": "Search query"},
                 limit={
@@ -214,24 +246,24 @@ def build_tools(vfs: VFS) -> ToolSpecSet:
             callable=partial(_search, vfs),
         ),
         ToolSpec(
-            name="read",
-            description=_DESCRIPTIONS["read"],
+            name="vfs_read",
+            description=_DESCRIPTIONS["read"] + route_hint,
             parameters_schema=_schema(
                 path={"type": "string", "description": "Full seekvfs:// URI"},
             ),
             callable=partial(_read, vfs),
         ),
         ToolSpec(
-            name="read_full",
-            description=_DESCRIPTIONS["read_full"],
+            name="vfs_read_full",
+            description=_DESCRIPTIONS["read_full"] + route_hint,
             parameters_schema=_schema(
                 path={"type": "string", "description": "Full seekvfs:// URI"},
             ),
             callable=partial(_read_full, vfs),
         ),
         ToolSpec(
-            name="write",
-            description=_DESCRIPTIONS["write"],
+            name="vfs_write",
+            description=_DESCRIPTIONS["write"] + route_hint,
             parameters_schema=_schema(
                 path={"type": "string", "description": "Full seekvfs:// URI"},
                 content={"type": "string", "description": "File content"},
@@ -239,8 +271,8 @@ def build_tools(vfs: VFS) -> ToolSpecSet:
             callable=partial(_write, vfs),
         ),
         ToolSpec(
-            name="edit",
-            description=_DESCRIPTIONS["edit"],
+            name="vfs_edit",
+            description=_DESCRIPTIONS["edit"] + route_hint,
             parameters_schema=_schema(
                 path={"type": "string", "description": "Full seekvfs:// URI"},
                 old={"type": "string", "description": "Literal text to replace"},
@@ -249,8 +281,8 @@ def build_tools(vfs: VFS) -> ToolSpecSet:
             callable=partial(_edit, vfs),
         ),
         ToolSpec(
-            name="ls",
-            description=_DESCRIPTIONS["ls"],
+            name="vfs_ls",
+            description=_DESCRIPTIONS["ls"] + route_hint,
             parameters_schema=_schema(
                 path={"type": "string", "description": "Directory URI"},
                 pattern={
@@ -268,8 +300,8 @@ def build_tools(vfs: VFS) -> ToolSpecSet:
             callable=partial(_ls, vfs),
         ),
         ToolSpec(
-            name="grep",
-            description=_DESCRIPTIONS["grep"],
+            name="vfs_grep",
+            description=_DESCRIPTIONS["grep"] + route_hint,
             parameters_schema=_schema(
                 pattern={"type": "string", "description": "Literal substring"},
                 path_pattern={
@@ -281,8 +313,8 @@ def build_tools(vfs: VFS) -> ToolSpecSet:
             callable=partial(_grep, vfs),
         ),
         ToolSpec(
-            name="delete",
-            description=_DESCRIPTIONS["delete"],
+            name="vfs_delete",
+            description=_DESCRIPTIONS["delete"] + route_hint,
             parameters_schema=_schema(
                 path={"type": "string", "description": "Full seekvfs:// URI"},
             ),
