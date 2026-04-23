@@ -13,15 +13,11 @@ Agents need one mental model for "files": one URI scheme, one tool surface, one 
 ## Install
 
 ```bash
+# Minimal — core only, no database required
 pip install seekvfs
 
-# optional extras — required by the Maximal recipe
-pip install asyncmy                 # OceanBase connection pool
-pip install "seekvfs[anthropic]"    # ClaudeSummarizer
-pip install "seekvfs[openai]"       # OpenAIEmbedder
-pip install "seekvfs[langgraph]"    # .to_langgraph()
-pip install "seekvfs[mcp]"          # .to_mcp()
-pip install "seekvfs[otel]"         # OpenTelemetry spans
+# Full — Maximal recipe + all LangChain providers + all integrations
+pip install "seekvfs[full]"
 ```
 
 ## Pick a recipe
@@ -36,19 +32,15 @@ Recipes are NOT part of the protocol — they live under `seekvfs_recipes.*` so 
 ## 30-second quickstart
 
 ```python
-import asyncio
 from seekvfs import VFS
 from seekvfs_recipes.minimal import FileBackend
 
-async def main():
-    vfs = VFS(routes={
-        "seekvfs://notes/": {"backend": FileBackend("/data/agent_notes")},
-    })
-    await vfs.write("seekvfs://notes/hello.md", "hello world")
-    fd = await vfs.read("seekvfs://notes/hello.md")
-    print(fd.content)   # b'hello world'
-
-asyncio.run(main())
+vfs = VFS(routes={
+    "seekvfs://notes/": {"backend": FileBackend("/data/agent_notes")},
+})
+vfs.write("seekvfs://notes/hello.md", "hello world")
+fd = vfs.read("seekvfs://notes/hello.md")
+print(fd.content)   # b'hello world'
 ```
 
 > Prefix names are yours to choose — the protocol does not recommend any naming convention.

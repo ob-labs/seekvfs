@@ -25,31 +25,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-# ── Minimal recipe ────────────────────────────────────────────────────────────
-# (no extra deps; uses only stdlib + anyio)
-
-# ── Maximal recipe ────────────────────────────────────────────────────────────
-# Core maximal deps: OceanBase sync driver (pyobvector) + LangChain base interfaces
-maximal = ["pyobvector>=0.2.6", "langchain-core>=0.3"]
-
-# LangChain provider extras — install whichever you use:
-langchain-openai    = ["langchain-openai>=0.3"]        # ChatOpenAI / OpenAIEmbeddings
-langchain-anthropic = ["langchain-anthropic>=0.3"]     # ChatAnthropic
-langchain-community = ["langchain-community>=0.3"]     # ChatTongyi / DashScopeEmbeddings (Qwen)
-
-# Convenience bundle: maximal + all first-party LangChain providers
-maximal-full = [
+# Full — Maximal recipe (OceanBase + all LangChain providers) + all integrations
+full = [
     "pyobvector>=0.2.6",
     "langchain-core>=0.3",
     "langchain-openai>=0.3",
     "langchain-anthropic>=0.3",
     "langchain-community>=0.3",
+    "langgraph>=0.2",
+    "mcp",
+    "opentelemetry-api>=1.20",
+    "opentelemetry-sdk>=1.20",
 ]
-
-# ── Other integrations ────────────────────────────────────────────────────────
-langgraph = ["langgraph>=0.2", "langchain-core>=0.3"]
-mcp = ["mcp"]
-otel = ["opentelemetry-api>=1.20", "opentelemetry-sdk>=1.20"]
 dev = [
     "pytest>=7.4",
     "pytest-asyncio>=0.23",
