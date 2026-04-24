@@ -13,6 +13,8 @@ injection — those all live inside backend implementations (see e.g.
 """
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import TYPE_CHECKING
 
 from seekvfs.exceptions import InvalidRouteConfig, VFSError
@@ -23,7 +25,6 @@ from seekvfs.models import (
     RouteConfig,
     SearchResult,
 )
-from seekvfs.observability import trace_span
 from seekvfs.reranker import LinearReranker
 from seekvfs.router import Router
 from seekvfs.uri import SCHEME
@@ -31,6 +32,18 @@ from seekvfs.uri import SCHEME
 if TYPE_CHECKING:
     from seekvfs.protocol import Reranker
     from seekvfs.tools import Tool
+
+
+@contextmanager
+def _instrument_vfs(name: str) -> Iterator[None]:
+    try:
+        import logfire
+    except ImportError:
+        yield
+        return
+
+    with logfire.span(name):
+        yield
 
 
 class VFS:
@@ -77,25 +90,24 @@ class VFS:
 
     # ---------- main API ----------
 
-    @trace_span("vfs.write")
     def write(self, path: str, content: bytes | str) -> None:
-        path = self._normalize(path)
-        _, route = self._router.resolve(path)
-        route["backend"].write(path, content)
+        with _instrument_vfs("vfs.write"):
+            path = self._normalize(path)
+            _, route = self._router.resolve(path)
+            route["backend"].write(path, content)
 
-    @trace_span("vfs.read")
     def read(self, path: str, hint: str | None = None) -> FileData:
-        path = self._normalize(path)
-        _, route = self._router.resolve(path)
-        return route["backend"].read(path, hint=hint)
+        with _instrument_vfs("vfs.read"):
+            path = self._normalize(path)
+            _, route = self._router.resolve(path)
+            return route["backend"].read(path, hint=hint)
 
-    @trace_span("vfs.read_full")
     def read_full(self, path: str) -> FileData:
-        path = self._normalize(path)
-        _, route = self._router.resolve(path)
-        return route["backend"].read_full(path)
+        with _instrument_vfs("vfs.read_full"):
+            path = self._normalize(path)
+            _, route = self._router.resolve(path)
+            return route["backend"].read_full(path)
 
-    @trace_span("vfs.search")
     def search(
         self,
         query: str,
@@ -104,57 +116,58 @@ class VFS:
         score_threshold: float | None = None,
     ) -> SearchResult:
         """Fan out across every route sequentially, then rerank."""
-        routes = self._router.all_routes()
-        if not routes:
-            return SearchResult(query=query, hits=[], searched_paths=[])
+        with _instrument_vfs("vfs.search"):
+            routes = self._router.all_routes()
+            if not routes:
+                return SearchResult(query=query, hits=[], searched_paths=[])
 
-        per_backend: list[SearchResult] = []
-        for prefix, route in routes:
-            out = route["backend"].search(
-                query,
-                path_pattern=path_pattern,
-                limit=limit,
-                score_threshold=score_threshold,
-            )
-            if prefix not in out.searched_paths:
-                out.searched_paths.append(prefix)
-            per_backend.append(out)
+            per_backend: list[SearchResult] = []
+            for prefix, route in routes:
+                out = route["backend"].search(
+                    query,
+                    path_pattern=path_pattern,
+                    limit=limit,
+                    score_threshold=score_threshold,
+                )
+                if prefix not in out.searched_paths:
+                    out.searched_paths.append(prefix)
+                per_backend.append(out)
 
-        return self._reranker.merge(per_backend, limit=limit)
+            return self._reranker.merge(per_backend, limit=limit)
 
-    @trace_span("vfs.ls")
     def ls(
         self,
         path: str,
         pattern: str | None = None,
         recursive: bool = False,
     ) -> list[FileInfo]:
-        path = self._normalize(path)
-        _, route = self._router.resolve(path)
-        return route["backend"].ls(path, pattern=pattern, recursive=recursive)
+        with _instrument_vfs("vfs.ls"):
+            path = self._normalize(path)
+            _, route = self._router.resolve(path)
+            return route["backend"].ls(path, pattern=pattern, recursive=recursive)
 
-    @trace_span("vfs.edit")
     def edit(self, path: str, old: str, new: str) -> int:
-        path = self._normalize(path)
-        _, route = self._router.resolve(path)
-        return route["backend"].edit(path, old, new)
+        with _instrument_vfs("vfs.edit"):
+            path = self._normalize(path)
+            _, route = self._router.resolve(path)
+            return route["backend"].edit(path, old, new)
 
-    @trace_span("vfs.grep")
     def grep(
         self,
         pattern: str,
         path_pattern: str | None = None,
     ) -> list[GrepMatch]:
-        results: list[GrepMatch] = []
-        for _, route in self._router.all_routes():
-            results.extend(route["backend"].grep(pattern, path_pattern=path_pattern))
-        return results
+        with _instrument_vfs("vfs.grep"):
+            results: list[GrepMatch] = []
+            for _, route in self._router.all_routes():
+                results.extend(route["backend"].grep(pattern, path_pattern=path_pattern))
+            return results
 
-    @trace_span("vfs.delete")
     def delete(self, path: str) -> None:
-        path = self._normalize(path)
-        _, route = self._router.resolve(path)
-        route["backend"].delete(path)
+        with _instrument_vfs("vfs.delete"):
+            path = self._normalize(path)
+            _, route = self._router.resolve(path)
+            route["backend"].delete(path)
 
     def read_batch(self, paths: list[str]) -> dict[str, FileData]:
         by_backend: dict[int, tuple[object, list[str]]] = {}
