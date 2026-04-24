@@ -30,7 +30,7 @@ from seekvfs.uri import SCHEME
 
 if TYPE_CHECKING:
     from seekvfs.protocol import Reranker
-    from seekvfs.tools import ToolSpecSet
+    from seekvfs.tools import Tool
 
 
 class VFS:
@@ -182,7 +182,7 @@ class VFS:
     # ---------- tools ----------
 
     @property
-    def tools(self) -> ToolSpecSet:
+    def tools(self) -> list[Tool]:
         from seekvfs.tools import build_tools
 
         return build_tools(self)

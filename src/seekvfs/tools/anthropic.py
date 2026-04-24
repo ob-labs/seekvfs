@@ -1,19 +1,20 @@
-"""Convert ToolSpecSet to Anthropic tool-use format."""
+"""Convert Tool list to Anthropic tool-use format."""
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any
 
-from seekvfs.tools.spec import ToolSpecSet
+from seekvfs.tools.spec import Tool
 
 
-def to_anthropic(specs: ToolSpecSet) -> list[dict[str, Any]]:
+def to_anthropic(tools: Sequence[Tool]) -> list[dict[str, Any]]:
     return [
         {
-            "name": s.name,
-            "description": s.description,
-            "input_schema": s.parameters_schema,
+            "name": tool.name,
+            "description": tool.description,
+            "input_schema": tool.args_model.model_json_schema(),
         }
-        for s in specs.specs
+        for tool in tools
     ]
 
 

@@ -1,4 +1,4 @@
-"""Neutral ToolSpec + ToolSpecSet and the 8 agent-facing tool builders.
+"""Neutral Tool model and the 8 agent-facing tool builders.
 
 Each built tool is an async callable bound to a :class:`VFS` instance.
 Output of read-like tools is wrapped as ``<file path=...>...</file>`` so
@@ -7,9 +7,11 @@ agents can clearly distinguish file content from chat text.
 from __future__ import annotations
 
 from collections.abc import Callable
-from dataclasses import dataclass, field, replace
-from functools import partial
-from typing import TYPE_CHECKING, Any
+from dataclasses import dataclass
+from inspect import getdoc, signature
+from typing import TYPE_CHECKING, Annotated, Any, get_type_hints, overload
+
+from pydantic import BaseModel, ConfigDict, Field, create_model
 
 from seekvfs.models import FileData
 
@@ -17,70 +19,106 @@ if TYPE_CHECKING:
     from seekvfs.vfs import VFS
 
 
-@dataclass
-class ToolSpec:
+@dataclass(frozen=True)
+class Tool:
     name: str
     description: str
-    parameters_schema: dict[str, Any]
+    args_model: type[BaseModel]
     callable: Callable[..., Any]
 
+    @classmethod
+    def from_callable(
+        cls,
+        func: Callable[..., Any],
+        *,
+        name: str | None = None,
+        description: str | None = None,
+    ) -> Tool:
+        from seekvfs.vfs import VFS
 
-@dataclass
-class ToolSpecSet:
-    specs: list[ToolSpec] = field(default_factory=list)
+        tool_name = name or func.__name__.removeprefix("_")
+        tool_description = description or getdoc(func)
+        if not tool_description:
+            raise TypeError(f"Missing tool description for {func.__name__}")
 
-    # ---- ergonomics ----
+        hints = get_type_hints(
+            func,
+            globalns={**func.__globals__, "VFS": VFS},
+            include_extras=True,
+        )
+        fields: dict[str, Any] = {}
+        for parameter in signature(func).parameters.values():
+            if parameter.name == "vfs":
+                continue
+            if parameter.name not in hints:
+                raise TypeError(
+                    f"Missing type annotation for tool parameter {func.__name__}.{parameter.name}"
+                )
+            fields[parameter.name] = (
+                hints[parameter.name],
+                ... if parameter.default is parameter.empty else parameter.default,
+            )
 
-    def __iter__(self):
-        return iter(self.specs)
+        model_name = "".join(part.capitalize() for part in tool_name.split("_")) + "Args"
+        return cls(
+            name=tool_name,
+            description=tool_description,
+            args_model=create_model(
+                model_name,
+                __config__=ConfigDict(extra="forbid"),
+                **fields,
+            ),
+            callable=func,
+        )
 
-    def __len__(self) -> int:
-        return len(self.specs)
+    def bind(self, vfs: VFS, route_hint: str = "") -> Tool:
+        def _call(**kwargs: Any) -> Any:
+            payload = self.args_model(**kwargs)
+            return self.callable(vfs, **payload.model_dump())
 
-    def names(self) -> list[str]:
-        return [s.name for s in self.specs]
-
-    def by_name(self, name: str) -> ToolSpec:
-        for s in self.specs:
-            if s.name == name:
-                return s
-        raise KeyError(name)
-
-    def with_description_overrides(
-        self, overrides: dict[str, str]
-    ) -> ToolSpecSet:
-        new_specs: list[ToolSpec] = []
-        for s in self.specs:
-            if s.name in overrides:
-                new_specs.append(replace(s, description=overrides[s.name]))
-            else:
-                new_specs.append(s)
-        return ToolSpecSet(specs=new_specs)
-
-    # ---- framework converters ----
-
-    def to_openai(self) -> list[dict[str, Any]]:
-        from seekvfs.tools.openai import to_openai
-
-        return to_openai(self)
-
-    def to_anthropic(self) -> list[dict[str, Any]]:
-        from seekvfs.tools.anthropic import to_anthropic
-
-        return to_anthropic(self)
-
-    def to_langgraph(self) -> list[Any]:
-        from seekvfs.tools.langgraph import to_langgraph
-
-        return to_langgraph(self)
-
-    def to_mcp(self) -> Any:
-        from seekvfs.tools.mcp import to_mcp
-
-        return to_mcp(self)
+        return Tool(
+            name=f"vfs_{self.name}",
+            description=self.description + route_hint,
+            args_model=self.args_model,
+            callable=_call,
+        )
 
 
 # ---------- helpers ----------
+
+
+@overload
+def toolspec(
+    func: Callable[..., Any],
+    *,
+    name: str | None = None,
+    description: str | None = None,
+) -> Tool: ...
+
+
+@overload
+def toolspec(
+    func: None = None,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+) -> Callable[[Callable[..., Any]], Tool]: ...
+
+
+def toolspec(
+    func: Callable[..., Any] | None = None,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+) -> Tool | Callable[[Callable[..., Any]], Tool]:
+    """Register a tool implementation."""
+
+    def decorator(func: Callable[..., Any]) -> Tool:
+        return Tool.from_callable(func, name=name, description=description)
+
+    if func is not None:
+        return decorator(func)
+    return decorator
 
 
 def _wrap_file_output(fd: FileData, path: str) -> str:
@@ -90,7 +128,17 @@ def _wrap_file_output(fd: FileData, path: str) -> str:
 
 # ---------- tool callable wrappers ----------
 
-def _search(vfs: VFS, query: str, limit: int = 10) -> dict[str, Any]:
+@toolspec
+def _search(
+    vfs: VFS,
+    query: Annotated[str, Field(description="Search query")],
+    limit: Annotated[int, Field(description="Max hits")] = 10,
+) -> dict[str, Any]:
+    """Search across files.
+
+    Returns matching paths with a short snippet when the backend provides one.
+    If a snippet is insufficient, call read_full(path) for complete content.
+    """
     sr = vfs.search(query, limit=limit)
     return {
         "query": sr.query,
@@ -106,32 +154,62 @@ def _search(vfs: VFS, query: str, limit: int = 10) -> dict[str, Any]:
     }
 
 
-def _read(vfs: VFS, path: str) -> str:
+@toolspec
+def _read(vfs: VFS, path: Annotated[str, Field(description="Full seekvfs:// URI")]) -> str:
+    """Read the backend's preferred representation of a file.
+
+    May be a derived summary if the backend keeps one, or the full content
+    otherwise. For the guaranteed original content, call read_full(path).
+    """
     fd = vfs.read(path)
     return _wrap_file_output(fd, path)
 
 
-def _read_full(vfs: VFS, path: str) -> str:
+@toolspec
+def _read_full(
+    vfs: VFS,
+    path: Annotated[str, Field(description="Full seekvfs:// URI")],
+) -> str:
+    """Read complete original content."""
     fd = vfs.read_full(path)
     return _wrap_file_output(fd, path)
 
 
-def _write(vfs: VFS, path: str, content: str) -> str:
+@toolspec
+def _write(
+    vfs: VFS,
+    path: Annotated[str, Field(description="Full seekvfs:// URI")],
+    content: Annotated[str, Field(description="File content")],
+) -> str:
+    """Write content. Indexing behavior is backend-defined."""
     vfs.write(path, content)
     return f"wrote {path}"
 
 
-def _edit(vfs: VFS, path: str, old: str, new: str) -> str:
+@toolspec
+def _edit(
+    vfs: VFS,
+    path: Annotated[str, Field(description="Full seekvfs:// URI")],
+    old: Annotated[str, Field(description="Literal text to replace")],
+    new: Annotated[str, Field(description="Replacement text")],
+) -> str:
+    """Literal string replacement. Last-write-wins on concurrent edits."""
     n = vfs.edit(path, old, new)
     return f"{n} replacement(s) in {path}"
 
 
+@toolspec
 def _ls(
     vfs: VFS,
-    path: str,
-    pattern: str | None = None,
-    recursive: bool = False,
+    path: Annotated[str, Field(description="Directory URI")],
+    pattern: Annotated[str | None, Field(description="Optional glob, e.g. *.md")] = None,
+    recursive: Annotated[bool, Field(description="Recurse into subdirs")] = False,
 ) -> list[dict[str, Any]]:
+    """List files.
+
+    pattern supports glob wildcards such as '*.md'; recursive=True lists the
+    full subtree.
+    """
     infos = vfs.ls(path, pattern=pattern, recursive=recursive)
     return [
         {
@@ -144,11 +222,16 @@ def _ls(
     ]
 
 
+@toolspec
 def _grep(
     vfs: VFS,
-    pattern: str,
-    path_pattern: str | None = None,
+    pattern: Annotated[str, Field(description="Literal substring")],
+    path_pattern: Annotated[
+        str | None,
+        Field(description="Optional glob to filter paths"),
+    ] = None,
 ) -> list[dict[str, Any]]:
+    """Literal search in file contents."""
     matches = vfs.grep(pattern, path_pattern=path_pattern)
     return [
         {"path": m.path, "line_number": m.line_number, "line": m.line}
@@ -156,44 +239,26 @@ def _grep(
     ]
 
 
-def _delete(vfs: VFS, path: str) -> str:
+@toolspec
+def _delete(
+    vfs: VFS,
+    path: Annotated[str, Field(description="Full seekvfs:// URI")],
+) -> str:
+    """Delete a file by path."""
     vfs.delete(path)
     return f"deleted {path}"
 
 
-# ---------- schemas ----------
-
-def _schema(**props: dict[str, Any]) -> dict[str, Any]:
-    required = [k for k, v in props.items() if v.pop("_required", True)]
-    return {
-        "type": "object",
-        "properties": props,
-        "required": required,
-        "additionalProperties": False,
-    }
-
-
-_DESCRIPTIONS: dict[str, str] = {
-    "search": (
-        "Search across files. Returns matching paths with a short snippet "
-        "(when the backend provides one). If a snippet is insufficient, "
-        "call read_full(path) for complete content."
-    ),
-    "read": (
-        "Read the backend's preferred representation of a file. May be a "
-        "derived summary if the backend keeps one, or the full content "
-        "otherwise. For the guaranteed original content, call read_full(path)."
-    ),
-    "read_full": "Read complete original content.",
-    "write": "Write content. Indexing behavior is backend-defined.",
-    "edit": "Literal string replacement. Last-write-wins on concurrent edits.",
-    "ls": (
-        "List files. pattern supports glob wildcards (e.g. '*.md'); "
-        "recursive=True lists subtree."
-    ),
-    "grep": "Literal search in file contents.",
-    "delete": "Delete a file by path.",
-}
+_BUILTIN_TOOLS: tuple[Tool, ...] = (
+    _search,
+    _read,
+    _read_full,
+    _write,
+    _edit,
+    _ls,
+    _grep,
+    _delete,
+)
 
 
 def _route_suffix(vfs: VFS) -> str:
@@ -222,7 +287,7 @@ def _route_suffix(vfs: VFS) -> str:
     )
 
 
-def build_tools(vfs: VFS) -> ToolSpecSet:
+def build_tools(vfs: VFS) -> list[Tool]:
     """Produce the 8 agent-facing tools bound to ``vfs``.
 
     All tool names carry a ``vfs_`` prefix (e.g. ``vfs_read``, ``vfs_write``)
@@ -230,98 +295,7 @@ def build_tools(vfs: VFS) -> ToolSpecSet:
     have access to (e.g. ``read_file``, ``write_file``).
     """
     route_hint = _route_suffix(vfs)
-    specs = [
-        ToolSpec(
-            name="vfs_search",
-            description=_DESCRIPTIONS["search"] + route_hint,
-            parameters_schema=_schema(
-                query={"type": "string", "description": "Search query"},
-                limit={
-                    "type": "integer",
-                    "description": "Max hits",
-                    "default": 10,
-                    "_required": False,
-                },
-            ),
-            callable=partial(_search, vfs),
-        ),
-        ToolSpec(
-            name="vfs_read",
-            description=_DESCRIPTIONS["read"] + route_hint,
-            parameters_schema=_schema(
-                path={"type": "string", "description": "Full seekvfs:// URI"},
-            ),
-            callable=partial(_read, vfs),
-        ),
-        ToolSpec(
-            name="vfs_read_full",
-            description=_DESCRIPTIONS["read_full"] + route_hint,
-            parameters_schema=_schema(
-                path={"type": "string", "description": "Full seekvfs:// URI"},
-            ),
-            callable=partial(_read_full, vfs),
-        ),
-        ToolSpec(
-            name="vfs_write",
-            description=_DESCRIPTIONS["write"] + route_hint,
-            parameters_schema=_schema(
-                path={"type": "string", "description": "Full seekvfs:// URI"},
-                content={"type": "string", "description": "File content"},
-            ),
-            callable=partial(_write, vfs),
-        ),
-        ToolSpec(
-            name="vfs_edit",
-            description=_DESCRIPTIONS["edit"] + route_hint,
-            parameters_schema=_schema(
-                path={"type": "string", "description": "Full seekvfs:// URI"},
-                old={"type": "string", "description": "Literal text to replace"},
-                new={"type": "string", "description": "Replacement text"},
-            ),
-            callable=partial(_edit, vfs),
-        ),
-        ToolSpec(
-            name="vfs_ls",
-            description=_DESCRIPTIONS["ls"] + route_hint,
-            parameters_schema=_schema(
-                path={"type": "string", "description": "Directory URI"},
-                pattern={
-                    "type": "string",
-                    "description": "Optional glob, e.g. *.md",
-                    "_required": False,
-                },
-                recursive={
-                    "type": "boolean",
-                    "description": "Recurse into subdirs",
-                    "default": False,
-                    "_required": False,
-                },
-            ),
-            callable=partial(_ls, vfs),
-        ),
-        ToolSpec(
-            name="vfs_grep",
-            description=_DESCRIPTIONS["grep"] + route_hint,
-            parameters_schema=_schema(
-                pattern={"type": "string", "description": "Literal substring"},
-                path_pattern={
-                    "type": "string",
-                    "description": "Optional glob to filter paths",
-                    "_required": False,
-                },
-            ),
-            callable=partial(_grep, vfs),
-        ),
-        ToolSpec(
-            name="vfs_delete",
-            description=_DESCRIPTIONS["delete"] + route_hint,
-            parameters_schema=_schema(
-                path={"type": "string", "description": "Full seekvfs:// URI"},
-            ),
-            callable=partial(_delete, vfs),
-        ),
-    ]
-    return ToolSpecSet(specs=specs)
+    return [tool.bind(vfs, route_hint) for tool in _BUILTIN_TOOLS]
 
 
-__all__ = ["ToolSpec", "ToolSpecSet", "build_tools"]
+__all__ = ["Tool", "build_tools", "toolspec"]

@@ -1,3 +1,3 @@
-from seekvfs.tools.spec import ToolSpec, ToolSpecSet, build_tools
+from seekvfs.tools.spec import Tool, build_tools, toolspec
 
-__all__ = ["ToolSpec", "ToolSpecSet", "build_tools"]
+__all__ = ["Tool", "build_tools", "toolspec"]
