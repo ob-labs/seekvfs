@@ -5,7 +5,7 @@ missing, directing the user to the ``[langgraph]`` extra.
 """
 from __future__ import annotations
 
-from typing import Any, Optional
+from typing import Any
 
 from pydantic import BaseModel, create_model
 
@@ -39,7 +39,7 @@ def _build_args_schema(spec: ToolSpec) -> type[BaseModel]:
             fields[field_name] = (py_type, ...)
         else:
             default = field_info.get("default", None)
-            fields[field_name] = (Optional[py_type], default)
+            fields[field_name] = (py_type | None, default)
 
     return create_model(spec.name, **fields)
 
