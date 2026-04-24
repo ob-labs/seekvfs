@@ -1,36 +1,50 @@
 from __future__ import annotations
 
+import builtins
+
 import pytest
 
 from seekvfs.vfs import VFS
 from tests.conftest import _StubBackend
 
-pytest.importorskip("opentelemetry")
+
+@pytest.fixture
+def no_logfire(monkeypatch) -> None:
+    original_import = builtins.__import__
+
+    def guarded_import(name, globals=None, locals=None, fromlist=(), level=0):
+        if name == "logfire":
+            raise ModuleNotFoundError("No module named 'logfire'")
+        return original_import(name, globals, locals, fromlist, level)
+
+    monkeypatch.setattr(builtins, "__import__", guarded_import)
 
 
 @pytest.fixture
-def tracer_provider():
-    from opentelemetry import trace
-    from opentelemetry.sdk.trace import TracerProvider
-    from opentelemetry.sdk.trace.export import SimpleSpanProcessor
-    from opentelemetry.sdk.trace.export.in_memory_span_exporter import (
-        InMemorySpanExporter,
+def span_exporter():
+    logfire = pytest.importorskip("logfire")
+    testing = pytest.importorskip("logfire.testing")
+
+    exporter = testing.TestExporter()
+    logfire.configure(
+        send_to_logfire=False,
+        console=False,
+        inspect_arguments=False,
+        additional_span_processors=[testing.SimpleSpanProcessor(exporter)],
     )
-
-    exporter = InMemorySpanExporter()
-    provider = TracerProvider()
-    provider.add_span_processor(SimpleSpanProcessor(exporter))
-    trace.set_tracer_provider(provider)
-    from seekvfs import observability
-
-    observability._tracer = None
-    observability._otel_available = None
-    return exporter
+    yield exporter
+    logfire.shutdown()
 
 
-def test_write_emits_span(tracer_provider) -> None:
+def test_write_emits_logfire_span(span_exporter) -> None:
     vfs = VFS(routes={"seekvfs://a/": {"backend": _StubBackend()}})
     vfs.write("seekvfs://a/p", "hello")
-    spans = tracer_provider.get_finished_spans()
-    names = {s.name for s in spans}
+
+    names = [span["name"] for span in span_exporter.exported_spans_as_dict()]
     assert "vfs.write" in names
+
+
+def test_write_read_degrade_without_logfire(no_logfire) -> None:
+    vfs = VFS(routes={"seekvfs://a/": {"backend": _StubBackend()}})
+    vfs.write("seekvfs://a/p", "hello")
+    assert vfs.read("seekvfs://a/p").content == b"hello"
