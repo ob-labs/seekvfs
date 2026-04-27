@@ -53,37 +53,37 @@ class VFS:
         self,
         routes: dict[str, RouteConfig],
         reranker: Reranker | None = None,
+        scheme: str = SCHEME,
     ) -> None:
+        self._scheme = scheme
         normalized = {self._normalize(k): v for k, v in routes.items()}
         self._validate_routes(normalized)
         self._routes = normalized
         self._router = Router(normalized)
         self._reranker: Reranker = reranker or LinearReranker()
 
-    @staticmethod
-    def _normalize(path: str) -> str:
-        """Ensure *path* carries the ``seekvfs://`` scheme.
+    def _normalize(self, path: str) -> str:
+        """Ensure *path* carries the configured scheme.
 
-        * Already starts with ``seekvfs://`` → returned as-is (idempotent).
-        * Bare path with no ``://`` → ``seekvfs://`` is prepended automatically.
-        * Contains ``://`` but not ``seekvfs://`` → raises :class:`VFSError`.
+        * Already starts with the configured scheme → returned as-is (idempotent).
+        * Bare path with no ``://`` → the configured scheme is prepended.
+        * Contains ``://`` but a different scheme → raises :class:`VFSError`.
         """
-        if path.startswith(SCHEME):
+        if path.startswith(self._scheme):
             return path
         if "://" in path:
             raise VFSError(
-                f"path uses an unknown scheme; expected {SCHEME!r}, got {path!r}"
+                f"path uses an unknown scheme; expected {self._scheme!r}, got {path!r}"
             )
-        return SCHEME + path
+        return self._scheme + path
 
-    @staticmethod
-    def _validate_routes(routes: dict[str, RouteConfig]) -> None:
+    def _validate_routes(self, routes: dict[str, RouteConfig]) -> None:
         if not routes:
             raise InvalidRouteConfig("routes must be a non-empty dict")
         for key, cfg in routes.items():
-            if not key.startswith(SCHEME):
+            if not key.startswith(self._scheme):
                 raise InvalidRouteConfig(
-                    f"route key must start with {SCHEME!r}, got {key!r}"
+                    f"route key must start with {self._scheme!r}, got {key!r}"
                 )
             if "backend" not in cfg:
                 raise InvalidRouteConfig(f"route {key!r} missing 'backend'")

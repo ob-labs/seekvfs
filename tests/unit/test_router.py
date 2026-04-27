@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import pytest
 
-from seekvfs.exceptions import NotFoundError, VFSError
+from seekvfs.exceptions import NotFoundError
 from seekvfs.router import Router
 
 
@@ -29,11 +29,6 @@ def test_no_match_raises_notfound() -> None:
     r = Router({"seekvfs://foo/": _route("F")})
     with pytest.raises(NotFoundError):
         r.resolve("seekvfs://bar/baz.md")
-
-
-def test_invalid_route_key_scheme_rejected() -> None:
-    with pytest.raises(VFSError):
-        Router({"http://nope/": _route("X")})
 
 
 def test_all_routes_sorted_desc() -> None:

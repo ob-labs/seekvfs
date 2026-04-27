@@ -6,18 +6,12 @@ only inspects prefixes.
 """
 from __future__ import annotations
 
-from seekvfs.exceptions import NotFoundError, VFSError
+from seekvfs.exceptions import NotFoundError
 from seekvfs.models import RouteConfig
-from seekvfs.uri import SCHEME
 
 
 class Router:
     def __init__(self, routes: dict[str, RouteConfig]) -> None:
-        for key in routes:
-            if not key.startswith(SCHEME):
-                raise VFSError(
-                    f"route key must start with {SCHEME!r}, got {key!r}"
-                )
         # sort descending by length for longest-prefix match
         self._sorted: list[tuple[str, RouteConfig]] = sorted(
             routes.items(), key=lambda kv: len(kv[0]), reverse=True
